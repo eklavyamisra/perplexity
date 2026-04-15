@@ -34,10 +34,10 @@ export async function sendMessage(req, res) {
 
     console.log(messages);
 
-    res.status(200).json({ 
-        response: result,
+    res.status(200).json({
+        chat: chat,
         title: title,
-        newMessage: aiMessage,
+        aiMessage: aiMessage,
     });
 
 }
