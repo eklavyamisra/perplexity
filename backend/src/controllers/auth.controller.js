@@ -5,7 +5,9 @@ import jwt from "jsonwebtoken";
 
 configDotenv();
 
-const CLIENT_URL = process.env.CORS_ORIGIN || 'http://localhost:5173';
+// In production both are the same Render URL; locally Vite (5173) and Express (3000) are split.
+const CLIENT_URL = process.env.APP_URL || process.env.CORS_ORIGIN || 'http://localhost:5173';
+const SERVER_URL = process.env.APP_URL || 'http://localhost:3000';
 
 const cookieOptions = {
     httpOnly: true,
@@ -32,7 +34,7 @@ export const register = async (req, res) => {
         email: newUser.email 
     }, process.env.JWT_SECRET);
 
-    const verificationLink = `http://localhost:3000/api/auth/verify-email?token=${emailVerificationToken}`;
+    const verificationLink = `${SERVER_URL}/api/auth/verify-email?token=${emailVerificationToken}`;
     const emailSubject = 'Please verify your email for Perplexity';
     const emailText = `Hi ${username},\n\nThank you for registering at Perplexity! Please verify your email by clicking the link below:\n\n${verificationLink}\n\nIf you did not create an account, please ignore this email.\n\nBest regards,\nThe Perplexity Team`;
     const emailHtml = `<p>Hi ${username},</p><p>Thank you for registering at Perplexity! Please verify your email by clicking the link below:</p><p><a href="${verificationLink}">Verify Email</a></p><p>If you did not create an account, please ignore this email.</p><p>Best regards,<br>The Perplexity Team</p>`;
@@ -195,8 +197,9 @@ export const resendVerificationEmail = async (req, res) => {
 
     // Send the verification email
     const emailSubject = 'Verify your email';
-    const emailText = `Please click the following link to verify your email: http://localhost:3000/api/auth/verify-email?token=${verificationToken}`;
-    const emailHtml = `<p>Please click the following link to verify your email:</p><p><a href="http://localhost:3000/api/auth/verify-email?token=${verificationToken}">Verify Email</a></p>`;
+    const verificationLink = `${SERVER_URL}/api/auth/verify-email?token=${verificationToken}`;
+    const emailText = `Please click the following link to verify your email: ${verificationLink}`;
+    const emailHtml = `<p>Please click the following link to verify your email:</p><p><a href="${verificationLink}">Verify Email</a></p>`;
 
     await sendEmail({
         to: user.email,

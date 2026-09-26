@@ -6,7 +6,8 @@ let socket = null;
 export const initializeSocket = () => {
     if (socket) return socket;
 
-    socket = io('http://localhost:3000', {
+    // No URL: connect to the same origin the page was served from.
+    socket = io({
         withCredentials: true,
     });
     socket.on('connect', () => {
