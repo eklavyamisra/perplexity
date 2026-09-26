@@ -1,187 +1,241 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { useSelector, useDispatch } from 'react-redux'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { useSelector } from 'react-redux'
+import { useNavigate } from 'react-router-dom';
 import { useChat } from '../hooks/useChat';
-import { fetchChats, getMessages, sendMessage } from '../services/chat.api';
-import { setChats, setCurrentChatId, setMessages } from '../chat.slice';
+import { useAuth } from '../../auth/hook/UseAuth.jsx';
+import { initializeSocket } from '../services/chat.socket.js';
+import Sidebar from '../components/Sidebar.jsx';
+import Composer from '../components/Composer.jsx';
+import Turn from '../components/Turn.jsx';
+import { MenuIcon, PlusIcon } from '../components/Icons.jsx';
 import '../styles/dashboard.css'
 
-const DashboardPage = () => {
-  const { user } = useSelector(state => state.auth)
-  const dispatch = useDispatch();
-  const chat = useChat();
+const SUGGESTIONS = [
+  { tag: 'Science', q: 'Why does time slow down near a black hole?' },
+  { tag: 'Tech', q: 'What are the biggest AI breakthroughs this year?' },
+  { tag: 'Money', q: 'Index funds vs. ETFs: what actually differs?' },
+  { tag: 'Culture', q: 'Explain the lasting influence of Bauhaus design' },
+];
 
-  const newChats = useSelector(state => state.chat.chats);
-  const currentChatId = useSelector(state => state.chat.currentChatId);
+// Pair each question with the answer that follows it.
+const toTurns = (messages = []) => {
+  const turns = [];
+  messages.forEach(msg => {
+    if (msg.sender === 'user') turns.push({ id: msg.id, question: msg.content, answer: null });
+    else if (turns.length) turns[turns.length - 1].answer = msg;
+    else turns.push({ id: msg.id, question: '', answer: msg });
+  });
+  return turns;
+};
+
+const greeting = () => {
+  const h = new Date().getHours();
+  if (h < 5) return 'Up late';
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
+};
+
+const DashboardPage = () => {
+  const user = useSelector(state => state.auth.user);
+  const { chats, currentChatId, pending, loadingMessages, error } = useSelector(state => state.chat);
+  const { loadChats, openChat, newChat, ask, removeThread } = useChat();
+  const { logoutUser } = useAuth();
+  const navigate = useNavigate();
 
   const [inputValue, setInputValue] = useState('');
-  const [chats, setChats] = useState([]);
-  const messagesEndRef = useRef(null);
+  const [railOpen, setRailOpen] = useState(false);
+  const scrollRef = useRef(null);
+  const composerRef = useRef(null);
+  const heroRef = useRef(null);
+
+  const current = currentChatId ? chats[currentChatId] : null;
+  const turns = useMemo(() => toTurns(current?.messages), [current?.messages]);
+  const showPending = pending && pending.chatId === currentChatId;
+  const isEmpty = !currentChatId && !showPending;
 
   useEffect(() => {
-    // Initialize socket connection
-    if (chat.socket) {
-      console.log('Socket connected:', chat.socket.id)
-    }
+    initializeSocket();
+    loadChats();
+  }, [loadChats]);
 
-    // Load chats on mount
-    const loadChats = async () => {
-      try {
-        const chats = await fetchChats();
-        const chatsObj = {};
-        chats.forEach(chat => chatsObj[chat._id] = chat);
-        dispatch(setChats(chatsObj));
-      } catch (error) {
-        console.error('Failed to load chats:', error);
+  // Bring the newest question to the top, so a long answer reads from its start.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const last = el?.querySelector('.turn:last-of-type');
+    if (el && last) el.scrollTo({ top: last.offsetTop - 24, behavior: 'smooth' });
+  }, [currentChatId, turns.length, showPending]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        newChat();
+        setRailOpen(false);
+        requestAnimationFrame(() => composerRef.current?.focus());
       }
     };
-    loadChats();
-  }, [chat.socket, dispatch])
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [newChat]);
 
-
-  // Auto-scroll to bottom when new messages arrive
+  // Spotlight that trails the pointer across the empty-state hero.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [newChats[currentChatId]?.messages])
+    const hero = heroRef.current;
+    if (!hero) return;
+    const onMove = (e) => {
+      const r = hero.getBoundingClientRect();
+      hero.style.setProperty('--mx', `${e.clientX - r.left}px`);
+      hero.style.setProperty('--my', `${e.clientY - r.top}px`);
+    };
+    hero.addEventListener('pointermove', onMove);
+    return () => hero.removeEventListener('pointermove', onMove);
+  }, [isEmpty]);
 
-  const handleSendMessage = async () => {
-    const trimmedMessage = inputValue.trim();
-    if (!trimmedMessage) return;
-    
-    chat.handleSendMessage({ chatId: currentChatId, message: trimmedMessage });
-
+  const submit = async (text = inputValue) => {
+    const message = text.trim();
+    if (!message || pending) return;
     setInputValue('');
-  }
+    const ok = await ask(message);
+    if (!ok) setInputValue(message);
+  };
 
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  }
+  const handleSelect = (chatId) => {
+    openChat(chatId);
+    setRailOpen(false);
+  };
 
-  console.log("Current Chats from Redux:", newChats);
-
-  const handleNewChat = () => {
-    dispatch(setCurrentChatId(null));
+  const handleNew = () => {
+    newChat();
+    setRailOpen(false);
     setInputValue('');
-  }
+    requestAnimationFrame(() => composerRef.current?.focus());
+  };
 
-  const handleChatSelect = async (chatId) => {
-    dispatch(setCurrentChatId(chatId));
-    try {
-      const response = await getMessages(chatId);
-      const fetchedMessages = response.messages;
-      // Transform messages to match the expected format
-      const transformedMessages = fetchedMessages.map(msg => ({
-        id: msg._id,
-        content: msg.content,
-        sender: msg.role === 'user' ? 'user' : 'ai',
-        timestamp: new Date(msg.createdAt)
-      }));
-      dispatch(setMessages({ chatId, messages: transformedMessages }));
-    } catch (error) {
-      console.error('Failed to load messages:', error);
-      dispatch(setMessages({ chatId, messages: [] }));
+  const handleDelete = async (chatId) => {
+    const title = chats[chatId]?.title || 'this thread';
+    if (window.confirm(`Delete “${title}”? This can't be undone.`)) {
+      await removeThread(chatId);
     }
-  }
+  };
+
+  const handleLogout = async () => {
+    await logoutUser();
+    navigate('/login');
+  };
+
+  const firstName = user?.username || 'there';
 
   return (
-    <div className="dashboard-container">
-      {/* Sidebar */}
-      <div className="dashboard-sidebar">
-        <button className="new-chat-btn" onClick={handleNewChat}>
-          ✨ New Chat
-        </button>
-        
-        <div className="chats-list">
-          <h3>Recent Chats</h3>
-          {Object.values(newChats).map(chat => (
-            <div 
-              key={chat._id} 
-              className={`chat-item ${currentChatId === chat._id ? 'active' : ''}`}
-              onClick={() => handleChatSelect(chat._id)}
-            >
-              <div className="chat-item-title">{chat.title}</div>
-              <div className="chat-item-preview">Conversation</div>
-            </div>
-          ))}
-        </div>
+    <div className="app">
+      <Sidebar
+        open={railOpen}
+        onClose={() => setRailOpen(false)}
+        chats={chats}
+        currentChatId={currentChatId}
+        onSelect={handleSelect}
+        onNew={handleNew}
+        onDelete={handleDelete}
+        user={user}
+        onLogout={handleLogout}
+      />
+      <div
+        className={`rail-backdrop ${railOpen ? 'is-open' : ''}`}
+        onClick={() => setRailOpen(false)}
+        aria-hidden="true"
+      />
 
-        <div className="sidebar-footer">
-          <div className="user-info">
-            <div className="user-avatar">{user?.name?.charAt(0).toUpperCase()}</div>
-            <div className="user-details">
-              <div className="user-name">{user?.name || 'User'}</div>
-              <div className="user-email">{user?.email || 'user@example.com'}</div>
-            </div>
+      <main className="stage">
+        <header className="topbar">
+          <button className="icon-btn topbar__menu" onClick={() => setRailOpen(true)} aria-label="Open sidebar">
+            <MenuIcon />
+          </button>
+          <div className="topbar__crumb mono-label">
+            <span>Threads</span>
+            <span className="topbar__sep">/</span>
+            <span className="topbar__title">{current?.title || (showPending ? 'New thread' : 'Home')}</span>
           </div>
-        </div>
-      </div>
-
-      {/* Main Chat Area */}
-      <div className="dashboard-main">
-        {/* Header */}
-        <div className="chat-header">
-          <div className="header-content">
-            <div className="logo">🔍 Perplexity</div>
-            <div className="user-message">
-              {user?.name || 'User'} • Dashboard
-            </div>
-          </div>
-        </div>
-
-        {/* Messages Container */}
-        <div className="messages-container">
-          {(!currentChatId || !newChats[currentChatId]?.messages || newChats[currentChatId].messages.length === 0) ? (
-            <div className="empty-state">
-              <div className="empty-icon">💡</div>
-              <h3>Start a new conversation</h3>
-              <p>Ask me anything or explore topics by entering your question below</p>
-            </div>
-          ) : (
-            newChats[currentChatId].messages.map(msg => (
-              <div key={msg.id} className={`message message-${msg.sender}`}>
-                <div className="message-avatar">
-                  {msg.sender === 'user' ? '👤' : '🤖'}
-                </div>
-                <div className="message-content">
-                  <div className="message-bubble">
-                    {msg.content}
-                  </div>
-                  <div className="message-time">
-                    {new Date(msg.timestamp).toLocaleTimeString()}
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input Area */}
-        <div className="input-area">
-          <div className="input-container">
-            <textarea
-              className="message-input"
-              placeholder="Ask something or type a command..."
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-              rows="2"
-            />
-            <button 
-              className="send-btn" 
-              onClick={handleSendMessage}
-              disabled={!inputValue.trim()}
-            >
-              📤
+          {!isEmpty && (
+            <button className="icon-btn" onClick={handleNew} aria-label="New thread" title="New thread">
+              <PlusIcon />
             </button>
-          </div>
-          <div className="input-footer">
-            <span className="shortcut-hint">Enter to send • Shift+Enter for new line</span>
-          </div>
-        </div>
-      </div>
+          )}
+        </header>
+
+        {isEmpty ? (
+          <section className="hero" ref={heroRef}>
+            <div className="hero__spot" aria-hidden="true" />
+            <div className="hero__inner">
+              <p className="mono-label hero__eyebrow fade-up" style={{ '--d': 100 }}>
+                {greeting()}, {firstName}
+              </p>
+              <h1 className="hero__title">
+                <span className="reveal-line" style={{ '--i': 0 }}><span>Where knowledge</span></span>
+                <span className="reveal-line" style={{ '--i': 1 }}><span><em>begins.</em></span></span>
+              </h1>
+
+              <div className="fade-up" style={{ '--d': 450 }}>
+                <Composer
+                  ref={composerRef}
+                  large
+                  value={inputValue}
+                  onChange={setInputValue}
+                  onSubmit={() => submit()}
+                  busy={!!pending}
+                  placeholder="Ask anything…"
+                />
+              </div>
+
+              {error && <p className="stage__error" role="alert">{error}</p>}
+
+              <div className="suggestions">
+                {SUGGESTIONS.map((s, i) => (
+                  <button
+                    key={s.q}
+                    className="suggestion fade-up"
+                    style={{ '--d': 600 + i * 80 }}
+                    onClick={() => submit(s.q)}
+                  >
+                    <span className="suggestion__top mono-label">
+                      <span>0{i + 1}</span>
+                      <span>{s.tag}</span>
+                    </span>
+                    <span className="suggestion__q">{s.q}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+        ) : (
+          <>
+            <section className="thread-view" ref={scrollRef}>
+              <div className="thread-view__inner">
+                {loadingMessages && !turns.length && (
+                  <div className="thread-view__loading"><span className="spinner" /></div>
+                )}
+                {turns.map((t, i) => (
+                  <Turn key={t.id} index={i} question={t.question} answer={t.answer} />
+                ))}
+                {showPending && (
+                  <Turn index={turns.length} question={pending.content} pending />
+                )}
+                {error && <p className="stage__error" role="alert">{error}</p>}
+              </div>
+            </section>
+
+            <div className="dock">
+              <Composer
+                ref={composerRef}
+                value={inputValue}
+                onChange={setInputValue}
+                onSubmit={() => submit()}
+                busy={!!pending}
+                placeholder="Ask a follow-up…"
+              />
+            </div>
+          </>
+        )}
+      </main>
     </div>
   )
 }

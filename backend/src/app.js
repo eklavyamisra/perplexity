@@ -27,4 +27,13 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRouter);
 app.use('/api/chats', chatRouter);
 
+// Express 5 forwards rejected async handlers here; always answer with JSON.
+app.use((err, req, res, next) => {
+    console.error(err);
+    res.status(err.status || 500).json({
+        message: err.message || 'Something went wrong',
+        success: false,
+    });
+});
+
 export default app;

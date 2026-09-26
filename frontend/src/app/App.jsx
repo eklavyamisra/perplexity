@@ -1,7 +1,6 @@
-import React from 'react'
+import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { router } from './app.routes.jsx';
-import { useEffect } from 'react';
 import { useAuth } from '../features/auth/hook/UseAuth.jsx';
 
 const App = () => {
@@ -9,13 +8,10 @@ const App = () => {
 
   useEffect(() => {
     fetchCurrentUser();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
-    <div>
-      <RouterProvider router={router} />
-    </div>
-  )
+  return <RouterProvider router={router} />;
 }
 
 export default App

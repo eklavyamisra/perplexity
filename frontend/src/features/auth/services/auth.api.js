@@ -5,33 +5,29 @@ const api = axios.create({
     withCredentials: true,
 });
 
-export const login = async (email, password) => {
+// Surface the most useful message: validator errors come back as an array.
+const toError = (error) => {
+    const data = error.response?.data;
+    const message = data?.errors?.[0]?.msg || data?.message || 'Network error — is the server running?';
+    return new Error(message);
+};
+
+const request = async (fn) => {
     try {
-        const response = await api.post('/login', { email, password });
+        const response = await fn();
         return response.data;
     }
     catch (error) {
-        throw error.response ? error.response.data : new Error('Network error');
+        throw toError(error);
     }
 };
 
-export const register = async (username, email, password) => {
-    try {
-        const response = await api.post('/register', { username, email, password });
-        return response.data;
-    }
-    catch (error) {
-        throw error.response ? error.response.data : new Error('Network error');
-    }
-};
+export const login = (email, password) => request(() => api.post('/login', { email, password }));
 
-export const getme = async () => {
-    try {
-        const response = await api.get('/get-me');
-        console.log(response)
-        return response.data;
-    }
-    catch (error) {
-        throw error.response ? error.response.data : new Error('Network error');
-    }
-};
+export const register = (username, email, password) => request(() => api.post('/register', { username, email, password }));
+
+export const getme = () => request(() => api.get('/get-me'));
+
+export const logout = () => request(() => api.post('/logout'));
+
+export const resendVerification = (email) => request(() => api.post('/resend-verification-email', { email }));

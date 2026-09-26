@@ -5,6 +5,15 @@ import jwt from "jsonwebtoken";
 
 configDotenv();
 
+const CLIENT_URL = process.env.CORS_ORIGIN || 'http://localhost:5173';
+
+const cookieOptions = {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+};
+
 export const register = async (req, res) => {
     const { username, email, password } = req.body;
 
@@ -28,14 +37,22 @@ export const register = async (req, res) => {
     const emailText = `Hi ${username},\n\nThank you for registering at Perplexity! Please verify your email by clicking the link below:\n\n${verificationLink}\n\nIf you did not create an account, please ignore this email.\n\nBest regards,\nThe Perplexity Team`;
     const emailHtml = `<p>Hi ${username},</p><p>Thank you for registering at Perplexity! Please verify your email by clicking the link below:</p><p><a href="${verificationLink}">Verify Email</a></p><p>If you did not create an account, please ignore this email.</p><p>Best regards,<br>The Perplexity Team</p>`;
 
-    await sendEmail({
-        to: email,
-        subject: emailSubject,
-        text: emailText,
-        html: emailHtml
-    });
+    // The account exists either way; a mail failure can be recovered with resend.
+    let emailSent = true;
+    try {
+        await sendEmail({
+            to: email,
+            subject: emailSubject,
+            text: emailText,
+            html: emailHtml
+        });
+    } catch (error) {
+        emailSent = false;
+        console.error('Verification email failed:', error.message);
+    }
 
     res.status(201).json({
+        emailSent,
         message: 'User registered successfully. Please check your email to verify your account.',
         success: true,
         user: {
@@ -52,9 +69,7 @@ export const verifyEmail = async (req, res) => {
     const { token } = req.query;
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        console.log("decoded:", decoded);
         const user = await userModel.findOne({ email: decoded.email });
-        console.log("user:",user);
         if (!user) {
             return res.status(400).json({ 
                 message: 'Invalid token: user not found',
@@ -62,12 +77,11 @@ export const verifyEmail = async (req, res) => {
                 err: "Invalid token: user not found"
             });
         }
-        if (user.verified === true) {
-            return res.send('<h1>Email already verified! You can log in to your account.</h1>');
+        if (!user.verified) {
+            user.verified = true;
+            await user.save();
         }
-        user.verified = true;
-        await user.save();
-        res.send('<h1>Email verified successfully! You can now log in to your account.</h1>');
+        res.redirect(`${CLIENT_URL}/login?verified=1`);
     } catch (error) {
         console.error("Email verification error:", error);
         res.status(400).json({ 
@@ -114,7 +128,7 @@ export const login = async (req, res) => {
         role: user.role
     }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-    res.cookie("token",token)
+    res.cookie("token", token, cookieOptions)
 
     res.json({
         message: 'Login successful',
@@ -150,6 +164,11 @@ export const getme = async (req,res) => {
     })
 
 }
+
+export const logout = (req, res) => {
+    res.clearCookie("token", { ...cookieOptions, maxAge: undefined });
+    res.json({ message: 'Logged out', success: true });
+};
 
 export const resendVerificationEmail = async (req, res) => {
     const email = req.body.email;

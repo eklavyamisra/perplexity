@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { login, register, verifyEmail , getme ,resendVerificationEmail } from "../controllers/auth.controller.js";
+import { login, register, verifyEmail , getme ,resendVerificationEmail, logout } from "../controllers/auth.controller.js";
 import { loginValidation, registerValidation} from "../validators/auth.validators.js";
 import { verifyToken } from "../middleware/auth.middleware.js";
 
@@ -31,6 +31,13 @@ authRouter.get('/verify-email', verifyEmail);
  * @access Private
  */
 authRouter.get('/get-me', verifyToken, getme)
+
+/**
+ * @route POST /api/auth/logout
+ * @desc Clear the auth cookie
+ * @access Public
+ */
+authRouter.post('/logout', logout);
 
 /**
  * @route POST /api/auth/resend-verification-email

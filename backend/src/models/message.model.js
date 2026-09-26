@@ -17,6 +17,14 @@ const messageModel = new mongoose.Schema(
             enum: ['user', 'ai'],
             required: true,
         },
+        sources: [
+            {
+                _id: false,
+                title: String,
+                url: String,
+                content: String,
+            },
+        ],
     },
     { timestamps: true }
 );

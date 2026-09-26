@@ -5,24 +5,20 @@ const api = axios.create({
     withCredentials: true,
 })
 
-export const sendMessage = async ({ chatId, message }) => {
-    const response = await api.post(`/chats/messages`, { chat: chatId, message });
-    console.log("Response from sendMessage API:", response.data);
-    return response.data;
+const request = async (fn) => {
+    try {
+        const response = await fn();
+        return response.data;
+    } catch (error) {
+        throw new Error(error.response?.data?.message || 'Network error — is the server running?');
+    }
 }
 
-export const fetchChats = async () => {
-    const response = await api.get('/chats');
-    return response.data;
-}
+export const sendMessage = ({ chatId, message }) =>
+    request(() => api.post(`/chats/messages`, { chat: chatId, message }));
 
-export const getMessages = async (chatId) => {
-    const response = await api.get(`/chats/${chatId}/messages`);
-    return response.data;
-}
+export const fetchChats = () => request(() => api.get('/chats'));
 
-export const deleteChat = async (chatId) => {
-    const response = await api.delete(`/chats/${chatId}`);
-    return response.data;
-}
+export const getMessages = (chatId) => request(() => api.get(`/chats/${chatId}/messages`));
 
+export const deleteChat = (chatId) => request(() => api.delete(`/chats/${chatId}`));
